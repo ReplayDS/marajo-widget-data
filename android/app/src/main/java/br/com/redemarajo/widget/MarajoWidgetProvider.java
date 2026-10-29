@@ -13,6 +13,7 @@ import androidx.work.Constraints;
 import androidx.work.ExistingPeriodicWorkPolicy;
 import androidx.work.NetworkType;
 import androidx.work.OneTimeWorkRequest;
+import androidx.work.OutOfQuotaPolicy;
 import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
 import java.time.Instant;
@@ -56,12 +57,14 @@ public class MarajoWidgetProvider extends AppWidgetProvider {
             MarajoUpdateWorker.class, 15, TimeUnit.MINUTES)
             .setConstraints(network()).build();
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            "marajo-periodic", ExistingPeriodicWorkPolicy.KEEP, periodic);
+            "marajo-periodic", ExistingPeriodicWorkPolicy.UPDATE, periodic);
     }
     public static void refresh(Context context) {
         OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(MarajoUpdateWorker.class)
-            .setConstraints(network()).build();
-        WorkManager.getInstance(context).enqueue(request);
+            .setConstraints(network())
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST).build();
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "marajo-manual-refresh", androidx.work.ExistingWorkPolicy.REPLACE, request);
     }
     static void draw(Context context, boolean online) {
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
@@ -93,6 +96,7 @@ public class MarajoWidgetProvider extends AppWidgetProvider {
             views.setTextViewText(R.id.status, !valid ? "AGUARDANDO DADOS DE HOJE" :
                 !online ? "CACHE · TOQUE PARA ATUALIZAR" : stale ? "DADO ANTIGO" : "GITHUB · OK");
             views.setTextColor(R.id.status, stale || !online ? Color.rgb(240,198,116) : Color.rgb(169,215,176));
+            views.setOnClickPendingIntent(R.id.widget_root, tap(context));
             views.setOnClickPendingIntent(R.id.liters, tap(context));
             views.setOnClickPendingIntent(R.id.status, tap(context));
             manager.updateAppWidget(id, views);
