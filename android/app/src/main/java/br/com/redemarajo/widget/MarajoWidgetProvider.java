@@ -1,6 +1,5 @@
 package br.com.redemarajo.widget;
 
-import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
@@ -9,25 +8,22 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
-import android.os.SystemClock;
 import android.widget.RemoteViews;
-
-import org.json.JSONObject;
-
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import androidx.work.Constraints;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 public class MarajoWidgetProvider extends AppWidgetProvider {
-    private static final String URL_DATA = "https://raw.githubusercontent.com/ReplayDS/marajo-widget-data/main/dados.json";
     private static final String ACTION_REFRESH = "br.com.redemarajo.widget.REFRESH";
-    private static final String ACTION_ALARM = "br.com.redemarajo.widget.ALARM";
     private static final ZoneId ZONE = ZoneId.of("America/Sao_Paulo");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy", new Locale("pt", "BR"));
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm", new Locale("pt", "BR"));
@@ -36,75 +32,38 @@ public class MarajoWidgetProvider extends AppWidgetProvider {
         schedule(context);
         refresh(context);
     }
-
     @Override public void onEnabled(Context context) {
         schedule(context);
         refresh(context);
     }
-
     @Override public void onDisabled(Context context) {
-        AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        if (am != null) am.cancel(pending(context, ACTION_ALARM));
+        WorkManager.getInstance(context).cancelUniqueWork("marajo-periodic");
     }
-
     @Override public void onReceive(Context context, Intent intent) {
         super.onReceive(context, intent);
-        String action = intent.getAction();
-        if (ACTION_REFRESH.equals(action) || ACTION_ALARM.equals(action)) refresh(context);
+        if (ACTION_REFRESH.equals(intent.getAction())) refresh(context);
     }
-
-    private static PendingIntent pending(Context context, String action) {
-        Intent intent = new Intent(context, MarajoWidgetProvider.class).setAction(action);
-        return PendingIntent.getBroadcast(context, action.equals(ACTION_ALARM) ? 2 : 1,
-            intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    private static PendingIntent tap(Context context) {
+        Intent intent = new Intent(context, MarajoWidgetProvider.class).setAction(ACTION_REFRESH);
+        return PendingIntent.getBroadcast(context, 1, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
-
+    private static Constraints network() {
+        return new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
+    }
     private static void schedule(Context context) {
-        AlarmManager am = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        if (am != null) {
-            am.setInexactRepeating(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + 15 * 60_000L,
-                15 * 60_000L, pending(context, ACTION_ALARM));
-        }
+        PeriodicWorkRequest periodic = new PeriodicWorkRequest.Builder(
+            MarajoUpdateWorker.class, 15, TimeUnit.MINUTES)
+            .setConstraints(network()).build();
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "marajo-periodic", ExistingPeriodicWorkPolicy.KEEP, periodic);
     }
-
     public static void refresh(Context context) {
-        Context app = context.getApplicationContext();
-        draw(app, false);
-        new Thread(() -> {
-            boolean ok = false;
-            HttpURLConnection conn = null;
-            try {
-                conn = (HttpURLConnection) new URL(URL_DATA + "?t=" + (System.currentTimeMillis() / 60000)).openConnection();
-                conn.setConnectTimeout(10000);
-                conn.setReadTimeout(10000);
-                conn.setRequestProperty("Accept", "application/json");
-                if (conn.getResponseCode() != 200) throw new Exception("HTTP " + conn.getResponseCode());
-                StringBuilder text = new StringBuilder();
-                try (BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) text.append(line);
-                }
-                JSONObject json = new JSONObject(text.toString());
-                String date = json.getString("date");
-                double value = json.getDouble("rawValue");
-                String readAt = json.getString("readAt");
-                Instant.parse(readAt);
-                if (!Double.isFinite(value) || value < 0) throw new Exception("Valor inválido");
-                app.getSharedPreferences("marajo", Context.MODE_PRIVATE).edit()
-                    .putString("date", date).putString("readAt", readAt)
-                    .putLong("valueBits", Double.doubleToRawLongBits(value))
-                    .putBoolean("hasValue", true).apply();
-                ok = true;
-            } catch (Exception ignored) {
-            } finally {
-                if (conn != null) conn.disconnect();
-                draw(app, ok);
-            }
-        }).start();
+        OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(MarajoUpdateWorker.class)
+            .setConstraints(network()).build();
+        WorkManager.getInstance(context).enqueue(request);
     }
-
-    private static void draw(Context context, boolean online) {
+    static void draw(Context context, boolean online) {
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
         int[] ids = manager.getAppWidgetIds(new ComponentName(context, MarajoWidgetProvider.class));
         if (ids.length == 0) return;
@@ -134,8 +93,8 @@ public class MarajoWidgetProvider extends AppWidgetProvider {
             views.setTextViewText(R.id.status, !valid ? "AGUARDANDO DADOS DE HOJE" :
                 !online ? "CACHE · TOQUE PARA ATUALIZAR" : stale ? "DADO ANTIGO" : "GITHUB · OK");
             views.setTextColor(R.id.status, stale || !online ? Color.rgb(240,198,116) : Color.rgb(169,215,176));
-            views.setOnClickPendingIntent(R.id.liters, pending(context, ACTION_REFRESH));
-            views.setOnClickPendingIntent(R.id.status, pending(context, ACTION_REFRESH));
+            views.setOnClickPendingIntent(R.id.liters, tap(context));
+            views.setOnClickPendingIntent(R.id.status, tap(context));
             manager.updateAppWidget(id, views);
         }
     }
