@@ -10,7 +10,7 @@
     </LinearLayout>
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="PORANGATU 01" android:textSize="11sp" android:textColor="#AAAAAF"/>
     <TextView android:id="@+id/date" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="--/--/----" android:textSize="10sp" android:textColor="#AAAAAF"/>
-    <View android:layout_width="match_parent" android:layout_height="2dp" android:layout_marginTop="7dp" android:layout_marginBottom="7dp" android:background="#990000"/>
+    <TextView android:layout_width="match_parent" android:layout_height="2dp" android:layout_marginTop="7dp" android:layout_marginBottom="7dp" android:background="#990000" android:text=""/>
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="QUANTIDADE DO DIA" android:textSize="10sp" android:textStyle="bold" android:textColor="#AAAAAF"/>
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="bottom">
         <TextView android:id="@+id/liters" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--" android:maxLines="1" android:textSize="31sp" android:textStyle="bold" android:textColor="#FFFFFF"/>
